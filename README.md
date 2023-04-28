@@ -15,5 +15,5 @@ Run these commands:
 
 or Run by docker compose
 
-test hi
+test
 devops engineers
