@@ -1,0 +1,118 @@
+trigger:
+- main
+
+pool:
+  name: agent1
+
+stages:
+- stage: InstallAndBuild
+  jobs:
+  - job: InstallAndBuild
+    steps:
+    - script: npm install vsts-npm-auth
+      displayName: 'Install vsts-npm-auth'
+
+    - script: sudo chmod +x /usr/local/bin/vsts-npm-auth
+      displayName: Giving necessary permissions
+
+    - task: npmAuthenticate@0
+      inputs:
+        workingFile: .npmrc
+
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '10.x'
+      displayName: 'Install Node.js'
+
+    - script: git add .
+      displayName: 'Git add changes'
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - script: git commit -m "Committing changes before version bump"
+      displayName: 'Git commit changes'
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - script: git clean -ffdx
+      displayName: 'Clean workspace'
+
+# Lines used to version up on each pipeline trigger but not working
+#    - script: npm run version
+#      displayName: Appending Version
+
+  - job: waitForValidation
+    displayName: Wait for external validation
+    pool: server
+    timeoutInMinutes: 4320 # job times out in 3 days
+    steps:
+    - task: ManualValidation@0
+      timeoutInMinutes: 1440 # task times out in 1 day
+      inputs:
+        notifyUsers: |
+          "saquibmohammed3786@gmail.com"
+        instructions: 'Please validate the build configuration and resume'
+        onTimeout: 'resume'
+
+
+- stage: PublishToRegistry
+  dependsOn: InstallAndBuild
+  jobs:
+  - job: PublishToRegistry
+    steps:
+    - task: Npm@1
+      inputs:
+        command: 'install'
+        workingDir: '.'
+        customRegistry: 'useFeed'
+        customFeed: '<your publish feed no/id>'
+
+    - task: Npm@1
+      inputs:
+        command: 'publish'
+        workingDir: '.'
+        publishRegistry: 'useFeed'
+        publishFeed: '<your publish feed no/id>'
+
+- stage: BuildAndPushDockerImage
+  jobs:
+  - job: BuildAndPushDockerImage
+    steps:
+    - script: |
+        docker build -t my-todolist:$(Build.BuildId) .
+      displayName: 'Build Docker image'
+      
+# create aws ecr repo , AWS tokens access key id and secret access key and copy the url of ecr repo and variablize it in azure pipeline.
+# AWS_ACCESS_KEY_ID = <token>
+# AWS_SECRET_ACCESS_KEY = <token>
+# ECR_REGISTRY_URL = <ecr registry url>
+
+    - script: |
+        aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
+        aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
+        aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $(ECR_REGISTRY_URL)
+        docker tag my-todolist:$(Build.BuildId) $(ECR_REGISTRY_URL):$(Build.BuildId)
+        docker push $(ECR_REGISTRY_URL):$(Build.BuildId)
+      displayName: 'Push to Amazon ECR'
+
+    - script: |
+        echo 'Successfully pushed to Amazon ECR'
+      displayName: 'Success message'
+
+- stage: DeployToVm
+  jobs:
+  - job: PullAndRunDockerImage
+    steps:
+    - script: |
+        # Authenticate with AWS using access and secret keys
+        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+
+        # Log in to the ECR
+        aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $(ECR_REGISTRY_URL)
+
+        # Pull the Docker image from ECR
+        docker pull $(ECR_REGISTRY_URL):$(Build.BuildId)
+
+        # Run the Docker container
+        docker run -d -p 80:8000 $(ECR_REGISTRY_URL):$(Build.BuildId)
+      displayName: 'Deploy Container from ECR'
+
