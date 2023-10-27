@@ -1,8 +1,12 @@
 trigger:
-- main
+-  main # pipeline will trigger on any change in the main branch 
+
+# Go into project settings in your azure devops organisation then select agent pool then create pool in that created pool select agents and add agents
+# then add your own self hosted agent/machine by following the commands from there.
+# azure devops > organisation > project > project settings > agent pools > create pool > agents > add agents 
 
 pool:
-  name: agent1
+  name: agent1  # name of the created agent pool
 
 stages:
 - stage: InstallAndBuild
@@ -15,9 +19,11 @@ stages:
     - script: sudo chmod +x /usr/local/bin/vsts-npm-auth
       displayName: Giving necessary permissions
 
+      # create a azure artifactory repo 
+
     - task: npmAuthenticate@0
       inputs:
-        workingFile: .npmrc
+        workingFile: .npmrc # file used to authneticate created file using steps defined in azure artifactory connect feed section based on the build tool used
 
     - task: NodeTool@0
       inputs:
@@ -26,8 +32,7 @@ stages:
 
     - script: git add .
       displayName: 'Git add changes'
-      workingDirectory: $(Build.SourcesDirectory)
-
+      workingDirectory: $(Build.SourcesDirectory) # $(Build.SourcesDirectory) is a predefined system variable that represents the directory on the agent where your source code files are downloaded during the build process
     - script: git commit -m "Committing changes before version bump"
       displayName: 'Git commit changes'
       workingDirectory: $(Build.SourcesDirectory)
@@ -48,7 +53,7 @@ stages:
       timeoutInMinutes: 1440 # task times out in 1 day
       inputs:
         notifyUsers: |
-          "saquibmohammed3786@gmail.com"
+          "saquibmohammed3786@gmail.com" # email of user you want validation from
         instructions: 'Please validate the build configuration and resume'
         onTimeout: 'resume'
 
